@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import keyring
 import traceback
+
 from sodapy import Socrata
 
 import pdb; pdb.set_trace()
@@ -129,31 +130,76 @@ def run_map(query_dataframe=pd.DataFrame()):
 
 # Use REGEX and add more arguments.
 
-def run_monthly_plot(query_dataframe=pd.DataFrame()):
-    months  = np.array([1, 2, 3, 4, 5, 6, 7])
-    req_num = np.array([0]*7)
+def datetimeinit_to_datetime(date_string):
+    try:
+        date_obj = datetime.datetime.strptime(date_string, "%Y-%m-%d")
+    except:
+        raise
+
+    return date_obj
+
+def run_month(query_dataframe=pd.DataFrame()):
+    MONTHS_IN_YEAR = 12
+    months  = np.array(list(range(1, MONTHS_IN_YEAR + 1)))
+    req_num = np.array([0]*MONTHS_IN_YEAR)
 
     for i, row in query_dataframe.iterrows():
-        if row['show_on_map']:
-            month = int(row['datetimeinit'][5:7])
-            print(row['datetimeinit'])
+        if not row['show_on_map']:
+            continue
+        try:
+            tmp   = row['datetimeinit'].split('T')[0]
+            ymd   = tmp.split('-')
+            month = int(ymd(1))
             req_num[month - 1] = req_num[month - 1] + 1
+        except:
+            print("Skipping row " + str(i))
 
-    plt.xlabel('Month') 
-    plt.ylabel('Number of requests') 
-    plt.title('2025 Illegal Dumping Requests')
-    plt.plot(months, req_num)
-    plt.show()
+    return np.vstack((months, req_num))
+
+def run_week(query_dataframe=pd.DataFrame()):
+    WEEKS_IN_YEAR = 52
+    weeks   = np.array(list(range(1, WEEKS_IN_YEAR + 1)))
+    req_num = np.array([0]*WEEKS_IN_YEAR)
+
+    for i, row in query_dataframe.iterrows():
+        if not row['show_on_map']:
+            continue
+        try:
+            tmp  = row['datetimeinit'].split('T')[0]
+            ymd  = tmp.split('-')
+            tmp  = datetime.date(int(ymd[0]), int(ymd[1]), int(ymd[2]))
+            week = tmp.isocalendar()[1]
+            req_num[week - 1] = req_num[week - 1] + 1
+        except:
+            print("Skipping row " + str(i))
+    
+    return np.vstack((weeks, req_num))
 
 def main():
     api_token = keyring.get_password("oak311", "api_token")
     dump = DumperData(api_token)
     query_dataframe = dump.run_query(offset=0, limit=100000, 
+                                     where="REQCATEGORY='ILLDUMP' AND date_extract_y(DATETIMEINIT)=2024", 
+                                     order="DATETIMEINIT DESC")                              
+    #get_requests_within_latlon_radius(query_dataframe,(37.8248742, -122.2783469), 50)
+    #run_map(query_dataframe)
+    data_2024 = run_week(query_dataframe)
+
+    query_dataframe = dump.run_query(offset=0, limit=100000, 
                                      where="REQCATEGORY='ILLDUMP' AND date_extract_y(DATETIMEINIT)=2025", 
                                      order="DATETIMEINIT DESC")                              
     #get_requests_within_latlon_radius(query_dataframe,(37.8248742, -122.2783469), 50)
-    run_map(query_dataframe)
-    run_monthly_plot(query_dataframe)
+    #run_map(query_dataframe)
+    data_2025 = run_week(query_dataframe)
+
+    plt.xlabel('Week') 
+    plt.ylabel('Number of illegal dumping requests')
+    plt.title('2024 (Blue) vs 2025 (Orange) Requests Weekly Trend')
+    plt.xlim(data_2024[0][0], data_2024[0][-1])
+    plt.xticks(np.arange(data_2024[0][0], data_2024[0][-1], 1))
+    plt.plot(data_2024[0], data_2024[1], data_2025[0][0:29], data_2025[1][0:29])
+    plt.grid()
+    plt.show()
     
     dump.close()
 
